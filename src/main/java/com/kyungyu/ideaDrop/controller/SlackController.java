@@ -14,7 +14,6 @@ import java.util.Map;
 public class SlackController {
 
     private final SlackService slackService;
-    private final GeminiService geminiService;
 
     @PostMapping("/events")
     public ResponseEntity<String> handleSlackEvent(@RequestBody Map<String, Object> payload) {
@@ -53,8 +52,7 @@ public class SlackController {
 
     @GetMapping("/test")
     public ResponseEntity<String> testSlackMessage() {
-//        slackService.sendTestMessage();
-        slackService.processPromptEvent("이경석", "강아지에 대한 사업 아디디어를 알려줄래", "C0ANT9QAR1V");
+        slackService.sendTestMessage();
         return ResponseEntity.ok("슬랙 확인해봐");
     }
 }
