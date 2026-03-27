@@ -71,7 +71,8 @@ public class GeminiService {
      * @return
      */
     private String callGeminiApi(String prompt) {
-        String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=" + apiKey;
+
+        String url = "https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-lite-preview:generateContent?key=" + apiKey;
 
         RestTemplate restTemplate = new RestTemplate();
         HttpHeaders headers = new HttpHeaders();
@@ -118,7 +119,7 @@ public class GeminiService {
      */
     public String generateEmbedding(String text) {
         // 1. Gemini Embedding 전용 API URL 세팅
-        String embeddingUrl = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=" + apiKey;
+        String embeddingUrl = "https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-lite-preview:generateContent?key=" + apiKey;
 
         RestTemplate restTemplate = new RestTemplate();
         HttpHeaders headers = new HttpHeaders();
