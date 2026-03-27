@@ -33,10 +33,10 @@ public class SlackService {
      * 설정 혹은 전달 받은 프롬프트로 AI가 아이디어 제안.
      * @param userId
      * @param prompt
-     * @param responseUrl
+     * @param channelId
      */
     @Async
-    public void processPrompt(String userId, String prompt, String responseUrl) {
+    public void processPromptEvent(String userId, String prompt, String channelId) {
         // 1. 요청 저장. (PENDING)
         Request request = savePendingRequest(userId, prompt);
 
@@ -83,33 +83,15 @@ public class SlackService {
         // 7. 상태 업데이트 (SUCCESS) 및 Slack 메시지 전송.
         request.markSuccess();
         requestRepository.save(request);
-        sendSlackMessage(responseUrl, finalSlackMessage);
+        sendSlackMessageWithToken(channelId, finalSlackMessage);
     }
 
     /**
      * 최종 결과 메시지를 slack 형식에 맞게 파싱 후 전송.
-     * @param responseUrl
+     * @param channelId
      * @param text
      */
-    private void sendSlackMessage(String responseUrl, String text) {
-        RestTemplate restTemplate = new RestTemplate();
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        // Slack API 규격에 맞춘 JSON 페이로드 구성
-        // response_type을 "in_channel"로 하면 채널의 모든 사람이 결과를 볼 수 있어
-        Map<String, String> body = Map.of(
-                "response_type", "in_channel",
-                "text", text
-        );
-
-        HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
-
-        // Slack이 알려준 콜백 주소(responseUrl)로 결과물 전송
-        restTemplate.postForEntity(responseUrl, request, String.class);
-    }
-
-    private void sendSlackMessageWithToken(String channel, String text) {
+    private void sendSlackMessageWithToken(String channelId, String text) {
         RestTemplate restTemplate = new RestTemplate();
         String slackApiUrl = "https://slack.com/api/chat.postMessage";
 
@@ -119,7 +101,7 @@ public class SlackService {
         headers.set("Authorization", "Bearer " + slackBotToken);
 
         Map<String, String> body = Map.of(
-                "channel", channel,
+                "channel", channelId,
                 "text", text
         );
 
