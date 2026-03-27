@@ -12,6 +12,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -54,7 +55,7 @@ public class SlackService {
         // 4. 코사인 거리가 0.15 미만인 가장 비슷한 기존 아이디어 조회.
         while (attempt < maxRetries) {
             double similarityThreshold = 0.15;
-            similarResponse = responseRepository.findMostSimilarIdea(currentVector, similarityThreshold);
+            similarResponse = findMostSimilarIdeaLocally(currentVector, similarityThreshold);
 
             if (similarResponse.isEmpty()) {
                 isUnique = true; // 중복이 없으므로 루프 탈출.
@@ -153,5 +154,74 @@ public class SlackService {
 
         // application.yml에서 주입받은 slackChannelId를 타겟으로 전송
         sendSlackMessageWithToken(slackChannelId, testMessage);
+    }
+
+    /**
+     * 메모리 상에서 가장 비슷한 아이디어를 찾는 메서드
+     * @param currentVectorStr
+     * @param distanceThreshold
+     * @return
+     */
+    private Optional<Response> findMostSimilarIdeaLocally(String currentVectorStr, double distanceThreshold) {
+        List<Response> recentResponses = responseRepository.findTop15ByOrderByCreatedAtDesc();
+        List<Double> currentVector = parseVectorString(currentVectorStr);
+
+        Response mostSimilar = null;
+        double minDistance = Double.MAX_VALUE;
+
+        // DB에서 가져온 최근 아이디어들과 하나씩 거리를 비교해
+        for (Response response : recentResponses) {
+            if (response.getEmbeddingVector() == null) continue;
+
+            List<Double> targetVector = parseVectorString(response.getEmbeddingVector());
+
+            // 코사인 거리 = 1 - 코사인 유사도
+            double distance = 1.0 - calculateCosineSimilarity(currentVector, targetVector);
+
+            if (distance < minDistance) {
+                minDistance = distance;
+                mostSimilar = response;
+            }
+        }
+
+        // 가장 가까운 거리가 기준치(0.15)보다 작으면 중복으로 판정!
+        if (minDistance < distanceThreshold) {
+            return Optional.of(mostSimilar);
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * 문자열 "[0.1, -0.2, ...]" 형태를 자바 List<Double> 객체로 파싱
+     * @param vectorStr
+     * @return
+     */
+    private List<Double> parseVectorString(String vectorStr) {
+        String cleanString = vectorStr.replace("[", "").replace("]", "");
+        return java.util.Arrays.stream(cleanString.split(","))
+                .map(String::trim)
+                .map(Double::parseDouble)
+                .toList();
+    }
+
+    /**
+     * 코사인 유사도 수학 공식을 자바로 구현
+     * @param vectorA
+     * @param vectorB
+     * @return
+     */
+    private double calculateCosineSimilarity(List<Double> vectorA, List<Double> vectorB) {
+        double dotProduct = 0.0;
+        double normA = 0.0;
+        double normB = 0.0;
+
+        for (int i = 0; i < vectorA.size(); i++) {
+            dotProduct += vectorA.get(i) * vectorB.get(i);
+            normA += Math.pow(vectorA.get(i), 2);
+            normB += Math.pow(vectorB.get(i), 2);
+        }
+
+        if (normA == 0 || normB == 0) return 0.0;
+        return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 }
