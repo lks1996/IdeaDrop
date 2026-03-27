@@ -1,5 +1,6 @@
 package com.kyungyu.ideaDrop.controller;
 
+import com.kyungyu.ideaDrop.service.GeminiService;
 import com.kyungyu.ideaDrop.service.SlackService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +14,7 @@ import java.util.Map;
 public class SlackController {
 
     private final SlackService slackService;
+    private final GeminiService geminiService;
 
     @PostMapping("/events")
     public ResponseEntity<String> handleSlackEvent(@RequestBody Map<String, Object> payload) {
@@ -51,7 +53,8 @@ public class SlackController {
 
     @GetMapping("/test")
     public ResponseEntity<String> testSlackMessage() {
-        slackService.sendTestMessage();
-        return ResponseEntity.ok("슬랙으로 테스트 메시지 전송을 시도했습니다. 슬랙 채널을 확인해 보세요!");
+//        slackService.sendTestMessage();
+        slackService.processPromptEvent("이경석", "강아지에 대한 사업 아디디어를 알려줄래", "C0ANT9QAR1V");
+        return ResponseEntity.ok("슬랙 확인해봐");
     }
 }

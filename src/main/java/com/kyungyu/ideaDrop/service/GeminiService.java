@@ -72,7 +72,7 @@ public class GeminiService {
      */
     private String callGeminiApi(String prompt) {
 
-        String url = "https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-lite-preview:generateContent?key=" + apiKey;
+        String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=" + apiKey;
 
         RestTemplate restTemplate = new RestTemplate();
         HttpHeaders headers = new HttpHeaders();
@@ -119,7 +119,7 @@ public class GeminiService {
      */
     public String generateEmbedding(String text) {
         // 1. Gemini Embedding 전용 API URL 세팅
-        String embeddingUrl = "https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-lite-preview:generateContent?key=" + apiKey;
+        String embeddingUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=" + apiKey;
 
         RestTemplate restTemplate = new RestTemplate();
         HttpHeaders headers = new HttpHeaders();
@@ -129,10 +129,7 @@ public class GeminiService {
         // Embedding API 규격: { "model": "...", "content": { "parts": [ { "text": "..." } ] } }
         Map<String, Object> part = Map.of("text", text);
         Map<String, Object> content = Map.of("parts", List.of(part));
-        Map<String, Object> body = Map.of(
-                "model", "models/text-embedding-004",
-                "content", content
-        );
+        Map<String, Object> body = Map.of("content", content);
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
