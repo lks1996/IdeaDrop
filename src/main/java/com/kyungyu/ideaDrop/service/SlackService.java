@@ -3,6 +3,7 @@ package com.kyungyu.ideaDrop.service;
 import com.kyungyu.ideaDrop.entity.*;
 import com.kyungyu.ideaDrop.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -21,6 +22,12 @@ public class SlackService {
     private final RequestRepository requestRepository;
     private final ResponseRepository responseRepository;
     private final GeminiService geminiService;
+
+    @Value("${slack.bot.token}")
+    private String slackBotToken;
+
+    @Value("${slack.channel.id}")
+    private String slackChannelId;
 
     /**
      * 설정 혹은 전달 받은 프롬프트로 AI가 아이디어 제안.
@@ -102,6 +109,30 @@ public class SlackService {
         restTemplate.postForEntity(responseUrl, request, String.class);
     }
 
+    private void sendSlackMessageWithToken(String channel, String text) {
+        RestTemplate restTemplate = new RestTemplate();
+        String slackApiUrl = "https://slack.com/api/chat.postMessage";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        // Authorization 헤더에 봇 토큰 추가
+        headers.set("Authorization", "Bearer " + slackBotToken);
+
+        Map<String, String> body = Map.of(
+                "channel", channel,
+                "text", text
+        );
+
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
+
+        try {
+            restTemplate.postForEntity(slackApiUrl, request, String.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("슬랙 자동 메시지 전송 실패");
+        }
+    }
+
     /**
      * 사용자로부터 전달 받은 요청 PENDING 상태로 DB에 저장.
      * @param userId
@@ -133,5 +164,12 @@ public class SlackService {
         response.setLikeCount(0);
         response.setCreatedAt(LocalDateTime.now());
         return responseRepository.save(response);
+    }
+
+    public void sendTestMessage() {
+        String testMessage = "🚀 *[IdeaDrop 테스트]*\n스프링 부트 서버에서 Bot Token을 사용하여 성공적으로 메시지를 전송했습니다!";
+
+        // application.yml에서 주입받은 slackChannelId를 타겟으로 전송
+        sendSlackMessageWithToken(slackChannelId, testMessage);
     }
 }

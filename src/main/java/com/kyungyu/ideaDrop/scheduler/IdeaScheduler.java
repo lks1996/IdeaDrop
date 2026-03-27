@@ -22,7 +22,7 @@ public class IdeaScheduler {
             String prompt = latestRequest.getPrompt();
 
             // 2. 알아서 실행하고 슬랙 채널로 전송하도록 서비스 호출.
-            slackService.processPromptScheduled("SYSTEM", prompt);
+//            slackService.processPromptScheduled("SYSTEM", prompt);
         });
     }
 }

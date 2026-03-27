@@ -1,0 +1,37 @@
+name: Deploy idea-dropper on Windows Laptop with Docker
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    name: Build Docker Image and Deploy
+    runs-on: self-hosted
+
+    steps:
+      # 1. 소스 코드 가져오기
+      - name: 1. Checkout source code
+        uses: actions/checkout@v4
+
+      # 2. Docker 이미지 빌드
+      - name: 2. Build Docker Image
+        run: docker build --build-arg RUN_MODE=windows -t idea-dropper .
+
+      # 3. 기존 컨테이너 중지 및 제거
+      - name: 3. Stop and Remove Existing Container
+        continue-on-error: true
+        shell: cmd
+        run: |
+          docker stop idea-dropper-container
+          docker rm idea-dropper-container
+
+      # 4. 새 Docker 컨테이너 실행 (볼륨 마운트 옵션 추가!)
+      - name: 4. Run New Docker Container
+        run: |
+          docker run -d --restart always `
+          -p 8390:8390 `
+          -e SPRING_PROFILES_ACTIVE=windows `
+          -v "C:\Projects\idea-dropper\config:/app/config" `
+          --name idea-dropper-container `
+          idea-dropper

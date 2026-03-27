@@ -23,4 +23,10 @@ public class SlackController {
 
         return ResponseEntity.ok("아이디어를 생성 중.. ㄱㄷㄱㄷ");
     }
+
+    @GetMapping("/test")
+    public ResponseEntity<String> testSlackMessage() {
+        slackService.sendTestMessage();
+        return ResponseEntity.ok("슬랙으로 테스트 메시지 전송을 시도했습니다. 슬랙 채널을 확인해 보세요!");
+    }
 }
