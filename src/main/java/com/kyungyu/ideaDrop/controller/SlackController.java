@@ -55,7 +55,7 @@ public class SlackController {
     }
 
     @PostMapping(value = "/action", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-    public ResponseEntity<String> handleSlackAction(@RequestParam("payload") String payload) throws Exception {
+    public ResponseEntity<Void> handleSlackAction(@RequestParam("payload") String payload) throws Exception {
         try {
             JsonNode rootNode = objectMapper.readTree(payload);
 
@@ -65,11 +65,8 @@ public class SlackController {
             Long responseId = actionNode.path("value").asLong();
 
             if ("like_idea_action".equals(actionId)) {
-                String updatedMessageJson = slackService.likeIdeaActionEvent(responseId, payload);
+                slackService.likeIdeaActionEvent(responseId, payload);
 
-                return ResponseEntity.ok()
-                        .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                        .body(updatedMessageJson);
             }
         } catch (Exception e) {
             e.printStackTrace();

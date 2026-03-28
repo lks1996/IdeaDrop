@@ -366,52 +366,64 @@ public class SlackService {
         }
     }
 
-    public String likeIdeaActionEvent(Long responseId, String payload) throws Exception {
+    public void likeIdeaActionEvent(Long responseId, String payload) throws Exception {
+        try {
+            JsonNode rootNode = objectMapper.readTree(payload);
 
-        JsonNode rootNode = objectMapper.readTree(payload);
+            // 1. 슬랙이 제공한 1회성 덮어쓰기 전용 URL 추출
+            String responseUrl = rootNode.path("response_url").asText();
 
-        // 2. DB에서 아이디어를 찾고 좋아요 카운트 증가
-        Response ideaResponse = responseRepository.findById(responseId).orElseThrow();
-        ideaResponse.setLikeCount(ideaResponse.getLikeCount() + 1);
-        responseRepository.save(ideaResponse);
+            // 2. DB에서 아이디어를 찾고 좋아요 카운트 증가
+            Response ideaResponse = responseRepository.findById(responseId).orElseThrow();
+            ideaResponse.setLikeCount(ideaResponse.getLikeCount() + 1);
+            responseRepository.save(ideaResponse);
 
-        // 3. 기존 메시지의 텍스트를 그대로 가져오고 버튼 숫자만 바꿔치기
-        // (실제로는 기존 블록 구조를 복사해서 카운트만 수정한 JSON을 리턴해야 해)
-        String originalText = rootNode.path("message").path("blocks").get(0).path("text").path("text").asText();
-        int newLikeCount = ideaResponse.getLikeCount();
+            // 3. 기존 메시지의 텍스트를 그대로 가져오고 버튼 숫자만 바꿔치기
+            String originalText = rootNode.path("message").path("blocks").get(0).path("text").path("text").asText();
+            int newLikeCount = ideaResponse.getLikeCount();
 
-        return """
-                {
-                  "replace_original": true,
-                  "blocks": [
-                    {
-                      "type": "section",
-                      "text": {
-                        "type": "mrkdwn",
-                        "text": %s
-                      }
-                    },
-                    {
-                      "type": "actions",
-                      "elements": [
-                        {
-                          "type": "button",
-                          "text": {
-                            "type": "plain_text",
-                            "emoji": true,
-                            "text": "👍 좋아요 (%d)"
-                          },
-                          "value": "%d",
-                          "action_id": "like_idea_action"
-                        }
-                      ]
-                    }
-                  ]
-                }
-                """.formatted(
-                objectMapper.writeValueAsString(originalText),
-                newLikeCount,
-                responseId
-        );
+            // 4. Block Kit JSON 구조 조립.
+            Map<String, Object> messageMap = Map.of(
+                    "replace_original", true, // ★ 기존 메시지를 갈아끼우는 마법의 스위치
+                    "blocks", List.of(
+                            Map.of(
+                                    "type", "section",
+                                    "text", Map.of(
+                                            "type", "mrkdwn",
+                                            "text", originalText
+                                    )
+                            ),
+                            Map.of(
+                                    "type", "actions",
+                                    "elements", List.of(
+                                            Map.of(
+                                                    "type", "button",
+                                                    "text", Map.of(
+                                                            "type", "plain_text",
+                                                            "emoji", true,
+                                                            "text", "👍 좋아요 (" + newLikeCount + ")"
+                                                    ),
+                                                    "value", String.valueOf(responseId),
+                                                    "action_id", "like_idea_action"
+                                            )
+                                    )
+                            )
+                    )
+            );
+
+            // 5. response_url로 직접 POST 전송
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(messageMap, headers);
+
+            // 전송 및 결과 확인
+            restTemplate.postForEntity(responseUrl, request, String.class);
+            log.info("✅ 슬랙 메시지 덮어쓰기 성공");
+
+        } catch (Exception e) {
+            log.error("❌ 슬랙 좋아요 처리 및 덮어쓰기 실패: ", e);
+        }
     }
 }
