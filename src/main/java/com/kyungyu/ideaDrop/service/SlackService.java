@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -36,6 +37,8 @@ public class SlackService {
 
     @Value("${slack.channel.id}")
     private String slackChannelId;
+
+    private String slackApiUrl = "https://slack.com/api/chat.postMessage";
 
     /**
      * 설정 혹은 전달 받은 프롬프트로 AI가 아이디어 제안.
@@ -290,7 +293,6 @@ public class SlackService {
      */
     private void sendSlackMessageWithToken(String channelId, String text) {
         RestTemplate restTemplate = new RestTemplate();
-        String slackApiUrl = "https://slack.com/api/chat.postMessage";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -320,7 +322,6 @@ public class SlackService {
      */
     private void sendSlackBlockMessage(String channelId, String markdownText, Long responseId) {
         RestTemplate restTemplate = new RestTemplate();
-        String slackApiUrl = "https://slack.com/api/chat.postMessage";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -329,32 +330,7 @@ public class SlackService {
         Map<String, Object> body = Map.of(
                 "channel", channelId,
                 "text", "새로운 아이디어 제안이 도착했습니다.", // 푸시 알림창에 뜨는 요약 텍스트
-                "blocks", List.of(
-                        // 첫 번째 블록: 마크다운 텍스트
-                        Map.of(
-                                "type", "section",
-                                "text", Map.of(
-                                        "type", "mrkdwn",
-                                        "text", markdownText
-                                )
-                        ),
-                        // 두 번째 블록: 좋아요 버튼
-                        Map.of(
-                                "type", "actions",
-                                "elements", List.of(
-                                        Map.of(
-                                                "type", "button",
-                                                "text", Map.of(
-                                                        "type", "plain_text",
-                                                        "emoji", true,
-                                                        "text", "👍 좋아요 (0)"
-                                                ),
-                                                "value", String.valueOf(responseId),
-                                                "action_id", "like_idea_action"
-                                        )
-                                )
-                        )
-                )
+                "blocks", buildIdeaBlocks(markdownText, 0, responseId)
         );
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
@@ -366,6 +342,13 @@ public class SlackService {
         }
     }
 
+    /**
+     * 슬랙 메시지 내 좋아요 버튼 제어 메서드
+     * @param responseId
+     * @param payload
+     * @throws Exception
+     */
+    @Transactional
     public void likeIdeaActionEvent(Long responseId, String payload) throws Exception {
         try {
             JsonNode rootNode = objectMapper.readTree(payload);
@@ -374,41 +357,17 @@ public class SlackService {
             String responseUrl = rootNode.path("response_url").asText();
 
             // 2. DB에서 아이디어를 찾고 좋아요 카운트 증가
-            Response ideaResponse = responseRepository.findById(responseId).orElseThrow();
-            ideaResponse.setLikeCount(ideaResponse.getLikeCount() + 1);
-            responseRepository.save(ideaResponse);
+            responseRepository.incrementLikeCount(responseId);
 
             // 3. 기존 메시지의 텍스트를 그대로 가져오고 버튼 숫자만 바꿔치기
-            String originalText = rootNode.path("message").path("blocks").get(0).path("text").path("text").asText();
+            Response ideaResponse = responseRepository.findById(responseId).orElseThrow();
             int newLikeCount = ideaResponse.getLikeCount();
+            String originalText = rootNode.path("message").path("blocks").get(0).path("text").path("text").asText();
 
             // 4. Block Kit JSON 구조 조립.
-            Map<String, Object> messageMap = Map.of(
-                    "replace_original", true, // ★ 기존 메시지를 갈아끼우는 마법의 스위치
-                    "blocks", List.of(
-                            Map.of(
-                                    "type", "section",
-                                    "text", Map.of(
-                                            "type", "mrkdwn",
-                                            "text", originalText
-                                    )
-                            ),
-                            Map.of(
-                                    "type", "actions",
-                                    "elements", List.of(
-                                            Map.of(
-                                                    "type", "button",
-                                                    "text", Map.of(
-                                                            "type", "plain_text",
-                                                            "emoji", true,
-                                                            "text", "👍 좋아요 (" + newLikeCount + ")"
-                                                    ),
-                                                    "value", String.valueOf(responseId),
-                                                    "action_id", "like_idea_action"
-                                            )
-                                    )
-                            )
-                    )
+            Map<String, Object> body = Map.of(
+                    "replace_original", true,
+                    "blocks", buildIdeaBlocks(originalText, newLikeCount, responseId)
             );
 
             // 5. response_url로 직접 POST 전송
@@ -416,7 +375,7 @@ public class SlackService {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(messageMap, headers);
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
             // 전송 및 결과 확인
             restTemplate.postForEntity(responseUrl, request, String.class);
@@ -425,5 +384,39 @@ public class SlackService {
         } catch (Exception e) {
             log.error("❌ 슬랙 좋아요 처리 및 덮어쓰기 실패: ", e);
         }
+    }
+
+    /**
+     * 슬랙 Block Kit의 blocks 배열 부분 조립하는 메서드
+     * @param text
+     * @param likeCount
+     * @param responseId
+     * @return
+     */
+    private List<Map<String, Object>> buildIdeaBlocks(String text, int likeCount, Long responseId) {
+        return List.of(
+                Map.of(
+                        "type", "section",
+                        "text", Map.of(
+                                "type", "mrkdwn",
+                                "text", text
+                        )
+                ),
+                Map.of(
+                        "type", "actions",
+                        "elements", List.of(
+                                Map.of(
+                                        "type", "button",
+                                        "text", Map.of(
+                                                "type", "plain_text",
+                                                "emoji", true,
+                                                "text", "👍 좋아요 (" + likeCount + ")"
+                                        ),
+                                        "value", String.valueOf(responseId),
+                                        "action_id", "like_idea_action"
+                                )
+                        )
+                )
+        );
     }
 }
