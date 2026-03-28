@@ -24,7 +24,7 @@ public class IdeaScheduler {
     private String slackChannelId;
 
     // 초 분 시 일 월 요일 (매일 18시 0분 0초에 실행, 한국 시간 기준)
-    @Scheduled(cron = "0 0 18 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 20 18 * * *", zone = "Asia/Seoul")
     public void generateDailyIdea() {
         // 1. 디비에서 사용자의 성공한 프롬프트 조회.
         Optional<Request> lastRequest = requestRepository.findFirstByStatusOrderByCreatedAtDesc(Status.SUCCESS);
