@@ -1,8 +1,10 @@
 package com.kyungyu.ideaDrop.service;
 
+import com.kyungyu.ideaDrop.dto.GeminiIdeaResponse;
 import com.kyungyu.ideaDrop.entity.*;
 import com.kyungyu.ideaDrop.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class SlackService {
 
     private final RequestRepository requestRepository;
@@ -49,7 +52,10 @@ public class SlackService {
             String currentAiResult = geminiService.generateIdeas(prompt);
 
             // 3. JSON 파싱 및 신호(Signal) 추출
-            String pureSignal = extractSignalFromJson(objectMapper, currentAiResult);
+            GeminiIdeaResponse responseDto = objectMapper.readValue(currentAiResult, GeminiIdeaResponse.class);
+
+            String pureSignal = responseDto.typeAGlobal().ideaName() + " " + responseDto.typeAGlobal().coreSummary() + " "
+                    + responseDto.typeBDomestic().ideaName() + " " + responseDto.typeBDomestic().coreSummary();
 
             // 4. 생성된 텍스트를 Gemini를 통해 Vector로 변환.
             String currentVector = geminiService.generateEmbedding(pureSignal);
@@ -73,12 +79,14 @@ public class SlackService {
                 attempt++;
                 String pastIdea = similarResponse.get().getOutput();
                 currentAiResult = geminiService.generateIdeasAvoidingPast(prompt, pastIdea);
-                pureSignal = extractSignalFromJson(objectMapper, currentAiResult);
+                responseDto = objectMapper.readValue(currentAiResult, GeminiIdeaResponse.class);
+                pureSignal = responseDto.typeAGlobal().ideaName() + " " + responseDto.typeAGlobal().coreSummary() + " "
+                        + responseDto.typeBDomestic().ideaName() + " " + responseDto.typeBDomestic().coreSummary();
                 currentVector = geminiService.generateEmbedding(pureSignal);
             }
 
             // 6. 루프 종료 후 최종 메시지 구성.
-            String finalSlackMessage = currentAiResult;
+            String finalSlackMessage = formatToSlackMarkdown(responseDto);
 
             if (!isUnique && similarResponse.isPresent()) {
                 // maxRetries 시도했으나 비슷하게 나왔을 경우의 방어(Fallback) 로직.
@@ -93,10 +101,9 @@ public class SlackService {
             request.markSuccess();
             requestRepository.save(request);
             sendSlackMessageWithToken(channelId, finalSlackMessage);
-        }catch (Exception e){
-            e.printStackTrace();
 
-            System.out.println("프로세스 처리 중 에러 발생: " + e.getMessage());
+        }catch (Exception e){
+            log.error("프로세스 처리 중 에러 발생: " , e.getMessage());
 
             // 1) 요청 상태를 ERROR로 업데이트
             request.setStatus(Status.ERROR);
@@ -105,57 +112,6 @@ public class SlackService {
             // 2) 사용자에게 슬랙으로 에러 메시지 전송
             String errorMessage = "⚠️ *[오류]* 아이디어를 생성 혹은 검증하는 과정에서 문제 발생. 잠시 후 다시 호출 바람.";
             sendSlackMessageWithToken(channelId, errorMessage);
-        }
-
-
-    }
-
-    /**
-     * JSON 파싱 메서드.
-     * @param mapper
-     * @param jsonResult
-     * @return
-     * @throws Exception
-     */
-    private String extractSignalFromJson(ObjectMapper mapper, String jsonResult) throws Exception {
-        JsonNode rootNode = mapper.readTree(jsonResult);
-
-        String titleA = rootNode.path("typeAGlobal").path("ideaName").asText("");
-        String summaryA = rootNode.path("typeAGlobal").path("coreSummary").asText("");
-
-        String titleB = rootNode.path("typeBDomestic").path("ideaName").asText("");
-        String summaryB = rootNode.path("typeBDomestic").path("coreSummary").asText("");
-
-        // 의미 있는 텍스트만 하나의 문장으로 결합
-        return titleA + " " + summaryA + " " + titleB + " " + summaryB;
-    }
-
-    /**
-     * 최종 결과 메시지를 slack 형식에 맞게 파싱 후 전송.
-     * @param channelId
-     * @param text
-     */
-    private void sendSlackMessageWithToken(String channelId, String text) {
-        RestTemplate restTemplate = new RestTemplate();
-        String slackApiUrl = "https://slack.com/api/chat.postMessage";
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        // Authorization 헤더에 봇 토큰 추가
-        headers.set("Authorization", "Bearer " + slackBotToken);
-
-        Map<String, String> body = Map.of(
-                "channel", channelId,
-                "text", text
-        );
-
-        HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
-
-        try {
-            restTemplate.postForEntity(slackApiUrl, request, String.class);
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.out.println("슬랙 자동 메시지 전송 실패");
         }
     }
 
@@ -200,6 +156,26 @@ public class SlackService {
     }
 
     /**
+     * JSON 파싱 메서드.
+     * @param mapper
+     * @param jsonResult
+     * @return
+     * @throws Exception
+     */
+    private String extractSignalFromJson(ObjectMapper mapper, String jsonResult) throws Exception {
+        JsonNode rootNode = mapper.readTree(jsonResult);
+
+        String titleA = rootNode.path("typeAGlobal").path("ideaName").asText("");
+        String summaryA = rootNode.path("typeAGlobal").path("coreSummary").asText("");
+
+        String titleB = rootNode.path("typeBDomestic").path("ideaName").asText("");
+        String summaryB = rootNode.path("typeBDomestic").path("coreSummary").asText("");
+
+        // 의미 있는 텍스트만 하나의 문장으로 결합
+        return titleA + " " + summaryA + " " + titleB + " " + summaryB;
+    }
+
+    /**
      * 메모리 상에서 가장 비슷한 아이디어를 찾는 메서드
      * @param currentVectorStr
      * @param distanceThreshold
@@ -228,7 +204,7 @@ public class SlackService {
             }
         }
 
-        // 가장 가까운 거리가 기준치(0.15)보다 작으면 중복으로 판정!
+        // 가장 가까운 거리가 기준치(0.15)보다 작으면 중복으로 판정
         if (minDistance < distanceThreshold) {
             return Optional.of(mostSimilar);
         }
@@ -267,5 +243,70 @@ public class SlackService {
 
         if (normA == 0 || normB == 0) return 0.0;
         return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+
+    /**
+     * 슬랙 마크다운 형식의 문자열로 포맷팅.
+     * @param dto
+     * @return
+     */
+    private String formatToSlackMarkdown(GeminiIdeaResponse dto) {
+        StringBuilder sb = new StringBuilder();
+
+        if (dto.typeAGlobal() != null) {
+            GeminiIdeaResponse.TypeAGlobal global = dto.typeAGlobal();
+            sb.append("🌍 *[Type A: 글로벌 타겟형]*\n");
+            sb.append(">• *아이디어명:* ").append(global.ideaName()).append("\n");
+            sb.append(">• *핵심 요약:* ").append(global.coreSummary()).append("\n");
+            sb.append(">• *트렌드 분석:* ").append(global.trendAnalysis()).append("\n");
+            sb.append(">• *K-Success 포인트:* ").append(global.kSuccessPoint()).append("\n");
+            sb.append(">• *해외 시장 빈틈:* ").append(global.globalMarketGap()).append("\n");
+            sb.append(">• *핵심 테크/알고리즘:* ").append(global.coreTech()).append("\n");
+            sb.append(">• *냉정한 한마디:* ").append(global.riskAssessment()).append("\n");
+            sb.append(">• *실행 첫 단계:* ").append(global.firstStep()).append("\n\n");
+        }
+
+        if (dto.typeBDomestic() != null) {
+            GeminiIdeaResponse.TypeBDomestic domestic = dto.typeBDomestic();
+            sb.append("🇰🇷 *[Type B: 국내 시장형]*\n");
+            sb.append(">• *아이디어명:* ").append(domestic.ideaName()).append("\n");
+            sb.append(">• *핵심 요약:* ").append(domestic.coreSummary()).append("\n");
+            sb.append(">• *트렌드 분석:* ").append(domestic.trendAnalysis()).append("\n");
+            sb.append(">• *Pain Point & Solution:* ").append(domestic.painPointSolution()).append("\n");
+            sb.append(">• *비즈니스 모델:* ").append(domestic.businessModel()).append("\n");
+            sb.append(">• *PM의 킥:* ").append(domestic.pmKick()).append("\n");
+            sb.append(">• *실행 첫 단계:* ").append(domestic.firstStep()).append("\n");
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 최종 결과 메시지를 slack 형식에 맞게 파싱 후 전송.
+     * @param channelId
+     * @param text
+     */
+    private void sendSlackMessageWithToken(String channelId, String text) {
+        RestTemplate restTemplate = new RestTemplate();
+        String slackApiUrl = "https://slack.com/api/chat.postMessage";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        // Authorization 헤더에 봇 토큰 추가
+        headers.set("Authorization", "Bearer " + slackBotToken);
+
+        Map<String, String> body = Map.of(
+                "channel", channelId,
+                "text", text
+        );
+
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
+
+        try {
+            restTemplate.postForEntity(slackApiUrl, request, String.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("슬랙 자동 메시지 전송 실패");
+        }
     }
 }

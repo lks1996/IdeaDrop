@@ -1,6 +1,5 @@
 package com.kyungyu.ideaDrop.controller;
 
-import com.kyungyu.ideaDrop.service.GeminiService;
 import com.kyungyu.ideaDrop.service.SlackService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
