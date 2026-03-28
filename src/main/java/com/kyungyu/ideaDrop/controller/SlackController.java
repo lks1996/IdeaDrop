@@ -3,6 +3,7 @@ package com.kyungyu.ideaDrop.controller;
 import com.kyungyu.ideaDrop.entity.Response;
 import com.kyungyu.ideaDrop.service.SlackService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -56,18 +57,16 @@ public class SlackController {
     @PostMapping(value = "/action", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     public ResponseEntity<String> handleSlackAction(@RequestParam("payload") String payload) throws Exception {
         try {
-            JsonNode rootNode = objectMapper.readTree(payload);
-
             // 1. 눌린 버튼의 action_id와 숨겨둔 value(DB ID)를 추출
-            JsonNode actionNode = rootNode.path("actions").get(0);
-            String actionId = actionNode.path("action_id").asText();
-            Long responseId = actionNode.path("value").asLong();
+            JsonNode rootNode = objectMapper.readTree(payload);
+            String actionId = rootNode.path("action_id").asText();
+            Long responseId = rootNode.path("value").asLong();
 
             if ("like_idea_action".equals(actionId)) {
                 String updatedMessageJson = slackService.likeIdeaActionEvent(responseId, payload);
 
                 return ResponseEntity.ok()
-                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                         .body(updatedMessageJson);
             }
         } catch (Exception e) {
