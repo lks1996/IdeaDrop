@@ -41,23 +41,27 @@ public class GeminiService {
             • 이를 해결할 솔루션을 탑재한 앱/웹을 구상.
             
             3. 아이디어 제안 결과 양식 (Output Format)
-            [Type A: 글로벌 타겟형]
-            :earth_africa: 아이디어명: (가제)
-            • 핵심 요약: (한 줄 서비스 정의 및 인터페이스 형태)
-            • 트렌드 분석: (지난 1년 상승 근거 및 데이터 지표)
-            • K-Success 포인트: (한국에서의 기술적/비즈니스적 검증 사례)
-            • 해외 시장의 빈틈: (타겟 시장의 기술적 미충족 수요)
-            • 핵심 테크/알고리즘: (앱의 심장이 될 기술)
-            • 냉정한 한마디: (예상되는 리스크)
-            • 아이디어 실행 첫 단계: (가설 검증을 위해 가장 먼저 실행해 볼 Micro-Action)
-            [Type B: 국내 시장형]
-            :rocket: 아이디어명: (가제)
-            • 핵심 요약: (한 줄 서비스 정의 및 인터페이스 형태)
-            • 트렌드 분석: (지난 1년 상승 근거 및 데이터 지표)
-            • Pain Point & Solution: (발견한 문제와 기술적 해결 로직)
-            • 비즈니스 모델: (수익 창출 모델 설명)
-            • PM의 킥(Kick): (경쟁사가 따라 할 수 없는 기술적 디테일)
-            • 아이디어 실행 첫 단계: (가설 검증을 위해 가장 먼저 실행해 볼 Micro-Action)
+            {
+              "typeAGlobal": {
+                "ideaName": "(가제)",
+                "coreSummary": "(한 줄 서비스 정의 및 인터페이스 형태)",
+                "trendAnalysis": "(지난 1년 상승 근거 및 데이터 지표)",
+                "kSuccessPoint": "(한국에서의 기술적/비즈니스적 검증 사례)",
+                "globalMarketGap": "(타겟 시장의 기술적 미충족 수요)",
+                "coreTech": "(앱의 심장이 될 기술)",
+                "riskAssessment": "(예상되는 리스크)",
+                "firstStep": "(가설 검증을 위해 가장 먼저 실행해 볼 Micro-Action)"
+              },
+              "typeBDomestic": {
+                "ideaName": "(가제)",
+                "coreSummary": "(한 줄 서비스 정의 및 인터페이스 형태)",
+                "trendAnalysis": "(지난 1년 상승 근거 및 데이터 지표)",
+                "painPointSolution": "(발견한 문제와 기술적 해결 로직)",
+                "businessModel": "(수익 창출 모델 설명)",
+                "pmKick": "(경쟁사가 따라 할 수 없는 기술적 디테일)",
+                "firstStep": "(가설 검증을 위해 가장 먼저 실행해 볼 Micro-Action)"
+              }
+            }
             
             조건:
             - 결과는 JSON 형식으로 전송할것
@@ -65,6 +69,23 @@ public class GeminiService {
             
             """;
 
+//            [Type A: 글로벌 타겟형]
+//            :earth_africa: 아이디어명: (가제)
+//            • 핵심 요약: (한 줄 서비스 정의 및 인터페이스 형태)
+//            • 트렌드 분석: (지난 1년 상승 근거 및 데이터 지표)
+//            • K-Success 포인트: (한국에서의 기술적/비즈니스적 검증 사례)
+//            • 해외 시장의 빈틈: (타겟 시장의 기술적 미충족 수요)
+//            • 핵심 테크/알고리즘: (앱의 심장이 될 기술)
+//            • 냉정한 한마디: (예상되는 리스크)
+//            • 아이디어 실행 첫 단계: (가설 검증을 위해 가장 먼저 실행해 볼 Micro-Action)
+//            [Type B: 국내 시장형]
+//            :rocket: 아이디어명: (가제)
+//            • 핵심 요약: (한 줄 서비스 정의 및 인터페이스 형태)
+//            • 트렌드 분석: (지난 1년 상승 근거 및 데이터 지표)
+//            • Pain Point & Solution: (발견한 문제와 기술적 해결 로직)
+//            • 비즈니스 모델: (수익 창출 모델 설명)
+//            • PM의 킥(Kick): (경쟁사가 따라 할 수 없는 기술적 디테일)
+//            • 아이디어 실행 첫 단계: (가설 검증을 위해 가장 먼저 실행해 볼 Micro-Action)
 
     /**
      * 지정된 프롬프트로 아이디어 호출을 위한 프롬프트 생성 및 제미나이 호출.
@@ -128,8 +149,7 @@ public class GeminiService {
             ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
             return extractText(response.getBody());
         } catch (Exception e) {
-            e.printStackTrace();
-            return "아이디어 생성 중 오류 발생.";
+            throw new RuntimeException("Gemini API 호출 또는 파싱 중 오류가 발생했습니다.", e);
         }
     }
 

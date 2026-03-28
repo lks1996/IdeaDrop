@@ -10,6 +10,8 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -40,51 +42,92 @@ public class SlackService {
     public void processPromptEvent(String userId, String prompt, String channelId) {
         // 1. 요청 저장. (PENDING)
         Request request = savePendingRequest(userId, prompt);
+        ObjectMapper objectMapper = new ObjectMapper();
 
-        // 2. Gemini 아이디어 생성.
-        String currentAiResult = geminiService.generateIdeas(prompt);
+        try {
+            // 2. Gemini 아이디어 생성.
+            String currentAiResult = geminiService.generateIdeas(prompt);
 
-        // 3. 생성된 텍스트를 Gemini를 통해 Vector로 변환.
-        String currentVector = geminiService.generateEmbedding(currentAiResult);
+            // 3. JSON 파싱 및 신호(Signal) 추출
+            String pureSignal = extractSignalFromJson(objectMapper, currentAiResult);
 
-        int maxRetries = 2;         // 최대 재시도 횟수 설정 값.
-        int attempt = 0;            // 현재 재시도 횟수.
-        boolean isUnique = false;   // 중복값 검증 결과값.
-        Optional<Response> similarResponse = Optional.empty();
+            // 4. 생성된 텍스트를 Gemini를 통해 Vector로 변환.
+            String currentVector = geminiService.generateEmbedding(pureSignal);
 
-        // 4. 코사인 거리가 0.15 미만인 가장 비슷한 기존 아이디어 조회.
-        while (attempt < maxRetries) {
-            double similarityThreshold = 0.15;
-            similarResponse = findMostSimilarIdeaLocally(currentVector, similarityThreshold);
+            int maxRetries = 2;         // 최대 재시도 횟수 설정 값.
+            int attempt = 0;            // 현재 재시도 횟수.
+            boolean isUnique = false;   // 중복값 검증 결과값.
+            Optional<Response> similarResponse = Optional.empty();
 
-            if (similarResponse.isEmpty()) {
-                isUnique = true; // 중복이 없으므로 루프 탈출.
-                break;
+            // 5. 코사인 거리가 0.15 미만인 가장 비슷한 기존 아이디어 조회.
+            while (attempt < maxRetries) {
+                double similarityThreshold = 0.15;
+                similarResponse = findMostSimilarIdeaLocally(currentVector, similarityThreshold);
+
+                if (similarResponse.isEmpty()) {
+                    isUnique = true; // 중복이 없으므로 루프 탈출.
+                    break;
+                }
+
+                // 중복이 발견되면 재시도 카운트 증가 및 새로운 프롬프트로 재호출.
+                attempt++;
+                String pastIdea = similarResponse.get().getOutput();
+                currentAiResult = geminiService.generateIdeasAvoidingPast(prompt, pastIdea);
+                pureSignal = extractSignalFromJson(objectMapper, currentAiResult);
+                currentVector = geminiService.generateEmbedding(pureSignal);
             }
 
-            // 중복이 발견되면 재시도 카운트 증가 및 새로운 프롬프트로 재호출.
-            attempt++;
-            String pastIdea = similarResponse.get().getOutput();
-            currentAiResult = geminiService.generateIdeasAvoidingPast(prompt, pastIdea);
-            currentVector = geminiService.generateEmbedding(currentAiResult);
+            // 6. 루프 종료 후 최종 메시지 구성.
+            String finalSlackMessage = currentAiResult;
+
+            if (!isUnique && similarResponse.isPresent()) {
+                // maxRetries 시도했으나 비슷하게 나왔을 경우의 방어(Fallback) 로직.
+                String pastIdea = similarResponse.get().getOutput();
+                finalSlackMessage += "\n\n⚠️ *[알림] 시스템이 " + maxRetries + "회 재시도했으나, 여전히 과거와 유사한 아이디어가 도출됨:*\n" + pastIdea;
+            }
+
+            // 7. Response 저장. (텍스트와 벡터 함께 저장)
+            saveResponse(request, currentAiResult, currentVector);
+
+            // 8. 상태 업데이트 (SUCCESS) 및 Slack 메시지 전송.
+            request.markSuccess();
+            requestRepository.save(request);
+            sendSlackMessageWithToken(channelId, finalSlackMessage);
+        }catch (Exception e){
+            e.printStackTrace();
+
+            System.out.println("프로세스 처리 중 에러 발생: " + e.getMessage());
+
+            // 1) 요청 상태를 ERROR로 업데이트
+            request.setStatus(Status.ERROR);
+            requestRepository.save(request);
+
+            // 2) 사용자에게 슬랙으로 에러 메시지 전송
+            String errorMessage = "⚠️ *[오류]* 아이디어를 생성 혹은 검증하는 과정에서 문제 발생. 잠시 후 다시 호출 바람.";
+            sendSlackMessageWithToken(channelId, errorMessage);
         }
 
-        // 5. 루프 종료 후 최종 메시지 구성.
-        String finalSlackMessage = currentAiResult;
 
-        if (!isUnique && similarResponse.isPresent()) {
-            // maxRetries 시도했으나 비슷하게 나왔을 경우의 방어(Fallback) 로직.
-            String pastIdea = similarResponse.get().getOutput();
-            finalSlackMessage += "\n\n⚠️ *[알림] 시스템이 " + maxRetries + "회 재시도했으나, 여전히 과거와 유사한 아이디어가 도출됨:*\n" + pastIdea;
-        }
+    }
 
-        // 6. Response 저장. (텍스트와 벡터 함께 저장)
-        saveResponse(request, currentAiResult, currentVector);
+    /**
+     * JSON 파싱 메서드.
+     * @param mapper
+     * @param jsonResult
+     * @return
+     * @throws Exception
+     */
+    private String extractSignalFromJson(ObjectMapper mapper, String jsonResult) throws Exception {
+        JsonNode rootNode = mapper.readTree(jsonResult);
 
-        // 7. 상태 업데이트 (SUCCESS) 및 Slack 메시지 전송.
-        request.markSuccess();
-        requestRepository.save(request);
-        sendSlackMessageWithToken(channelId, finalSlackMessage);
+        String titleA = rootNode.path("typeAGlobal").path("ideaName").asText("");
+        String summaryA = rootNode.path("typeAGlobal").path("coreSummary").asText("");
+
+        String titleB = rootNode.path("typeBDomestic").path("ideaName").asText("");
+        String summaryB = rootNode.path("typeBDomestic").path("coreSummary").asText("");
+
+        // 의미 있는 텍스트만 하나의 문장으로 결합
+        return titleA + " " + summaryA + " " + titleB + " " + summaryB;
     }
 
     /**
@@ -177,6 +220,7 @@ public class SlackService {
 
             // 코사인 거리 = 1 - 코사인 유사도
             double distance = 1.0 - calculateCosineSimilarity(currentVector, targetVector);
+            System.out.println("비교 대상 ID: " + response.getId() + " | 계산된 거리: " + distance);
 
             if (distance < minDistance) {
                 minDistance = distance;
