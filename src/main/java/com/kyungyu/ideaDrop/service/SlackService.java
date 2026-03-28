@@ -29,6 +29,8 @@ public class SlackService {
     private final ResponseRepository responseRepository;
     private final GeminiService geminiService;
 
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     @Value("${slack.bot.token}")
     private String slackBotToken;
 
@@ -45,8 +47,6 @@ public class SlackService {
     public void processPromptEvent(String userId, String prompt, String channelId) {
         // 1. 요청 저장. (PENDING)
         Request request = savePendingRequest(userId, prompt);
-        ObjectMapper objectMapper = new ObjectMapper();
-
         try {
             // 2. Gemini 아이디어 생성.
             String currentAiResult = geminiService.generateIdeas(prompt);
@@ -95,12 +95,14 @@ public class SlackService {
             }
 
             // 7. Response 저장. (텍스트와 벡터 함께 저장)
-            saveResponse(request, currentAiResult, currentVector);
+            Response savedResponse = saveResponse(request, currentAiResult, currentVector);
 
-            // 8. 상태 업데이트 (SUCCESS) 및 Slack 메시지 전송.
+            // 8. 상태 업데이트 (SUCCESS)
             request.markSuccess();
             requestRepository.save(request);
-            sendSlackMessageWithToken(channelId, finalSlackMessage);
+
+            // 9. Block Kit 메서드로 슬랙에 전송
+            sendSlackBlockMessage(channelId, finalSlackMessage, savedResponse.getId());
 
         }catch (Exception e){
             log.error("프로세스 처리 중 에러 발생: " , e.getMessage());
@@ -308,5 +310,108 @@ public class SlackService {
             e.printStackTrace();
             System.out.println("슬랙 자동 메시지 전송 실패");
         }
+    }
+
+    /**
+     * 최종 결과 메시지를 slack 버튼(Block Kit)을 포함해서 파싱 후 전송.
+     * @param channelId
+     * @param markdownText
+     * @param responseId
+     */
+    private void sendSlackBlockMessage(String channelId, String markdownText, Long responseId) {
+        RestTemplate restTemplate = new RestTemplate();
+        String slackApiUrl = "https://slack.com/api/chat.postMessage";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", "Bearer " + slackBotToken);
+
+        Map<String, Object> body = Map.of(
+                "channel", channelId,
+                "text", "새로운 아이디어 제안이 도착했습니다.", // 푸시 알림창에 뜨는 요약 텍스트
+                "blocks", List.of(
+                        // 첫 번째 블록: 마크다운 텍스트
+                        Map.of(
+                                "type", "section",
+                                "text", Map.of(
+                                        "type", "mrkdwn",
+                                        "text", markdownText
+                                )
+                        ),
+                        // 두 번째 블록: 좋아요 버튼
+                        Map.of(
+                                "type", "actions",
+                                "elements", List.of(
+                                        Map.of(
+                                                "type", "button",
+                                                "text", Map.of(
+                                                        "type", "plain_text",
+                                                        "emoji", true,
+                                                        "text", "👍 좋아요 (0)"
+                                                ),
+                                                "value", String.valueOf(responseId),
+                                                "action_id", "like_idea_action"
+                                        )
+                                )
+                        )
+                )
+        );
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        try {
+            restTemplate.postForEntity(slackApiUrl, request, String.class);
+        } catch (Exception e) {
+            log.error("슬랙 Block Kit 메시지 전송 실패: ", e);
+        }
+    }
+
+    public String likeIdeaActionEvent(Long responseId, String payload) throws Exception {
+
+        JsonNode rootNode = objectMapper.readTree(payload);
+
+        // 2. DB에서 아이디어를 찾고 좋아요 카운트 증가
+        Response ideaResponse = responseRepository.findById(responseId).orElseThrow();
+        ideaResponse.setLikeCount(ideaResponse.getLikeCount() + 1);
+        responseRepository.save(ideaResponse);
+
+        // 3. 기존 메시지의 텍스트를 그대로 가져오고 버튼 숫자만 바꿔치기
+        // (실제로는 기존 블록 구조를 복사해서 카운트만 수정한 JSON을 리턴해야 해)
+        String originalText = rootNode.path("message").path("blocks").get(0).path("text").path("text").asText();
+        int newLikeCount = ideaResponse.getLikeCount();
+
+        return """
+                {
+                  "replace_original": true,
+                  "blocks": [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": %s
+                      }
+                    },
+                    {
+                      "type": "actions",
+                      "elements": [
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "emoji": true,
+                            "text": "👍 좋아요 (%d)"
+                          },
+                          "value": "%d",
+                          "action_id": "like_idea_action"
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """.formatted(
+                objectMapper.writeValueAsString(originalText),
+                newLikeCount,
+                responseId
+        );
     }
 }
