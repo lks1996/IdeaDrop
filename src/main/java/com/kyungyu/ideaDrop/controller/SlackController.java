@@ -57,10 +57,12 @@ public class SlackController {
     @PostMapping(value = "/action", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     public ResponseEntity<String> handleSlackAction(@RequestParam("payload") String payload) throws Exception {
         try {
-            // 1. 눌린 버튼의 action_id와 숨겨둔 value(DB ID)를 추출
             JsonNode rootNode = objectMapper.readTree(payload);
-            String actionId = rootNode.path("action_id").asText();
-            Long responseId = rootNode.path("value").asLong();
+
+            // 1. 눌린 버튼의 action_id와 숨겨둔 value(DB ID)를 추출
+            JsonNode actionNode = rootNode.path("actions").get(0);
+            String actionId = actionNode.path("action_id").asText();
+            Long responseId = actionNode.path("value").asLong();
 
             if ("like_idea_action".equals(actionId)) {
                 String updatedMessageJson = slackService.likeIdeaActionEvent(responseId, payload);
