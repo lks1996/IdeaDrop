@@ -1,0 +1,44 @@
+name: Deploy idea-dropper to AWS Lambda
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy-to-aws:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Checkout source code
+        uses: actions/checkout@v4
+
+      - name: 2. Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2 # 서울 리전
+
+      - name: 3. Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 4. Build and Push Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: idea-dropper-lambda # AWS ECR에 생성한 리포 이름
+          IMAGE_TAG: latest
+        run: |
+          docker build --build-arg RUN_MODE=lambda -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: 5. Update AWS Lambda Function Code
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: idea-dropper-lambda
+          IMAGE_TAG: latest
+          LAMBDA_FUNCTION_NAME: idea-dropper-job # AWS Lambda에 생성한 함수 이름
+        run: |
+          aws lambda update-function-code \
+            --function-name $LAMBDA_FUNCTION_NAME \
+            --image-uri $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
