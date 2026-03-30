@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 @RequiredArgsConstructor
@@ -47,7 +48,7 @@ public class SlackService {
      * @param channelId
      */
     @Async
-    public void processPromptEvent(String userId, String prompt, String channelId) {
+    public CompletableFuture<Void> processPromptEvent(String userId, String prompt, String channelId) {
         // 1. 요청 저장. (PENDING)
         Request request = savePendingRequest(userId, prompt);
         try {
@@ -118,6 +119,7 @@ public class SlackService {
             String errorMessage = "⚠️ *[오류]* 아이디어를 생성 혹은 검증하는 과정에서 문제 발생. 잠시 후 다시 호출 바람.";
             sendSlackMessageWithToken(channelId, errorMessage);
         }
+        return CompletableFuture.completedFuture(null);
     }
 
     /**

@@ -40,6 +40,6 @@ public class IdeaScheduler {
 
         log.info("스케줄러 작동: 최근 주제 '{}' 기반으로 아이디어 자동 생성 시작.", savedPrompt);
 
-        slackService.processPromptEvent(systemUserId, savedPrompt, slackChannelId);
+        slackService.processPromptEvent(systemUserId, savedPrompt, slackChannelId).join();
     }
 }
